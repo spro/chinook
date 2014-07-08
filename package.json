@@ -1,0 +1,33 @@
+{
+    "name": "chinook",
+    "version": "0.0.1",
+    "description": "Automated hipache configuration for docker containers",
+    "homepage": "http://github.com/prontotype-us/chinook",
+    "repository": {
+        "type": "git",
+        "url": "http://github.com/prontotype-us/chinook.git"
+    },
+    "author": {
+        "name": "Prontotype",
+        "url": "http://prontotype.us/"
+    },
+    "keywords": [
+        "automation",
+        "docker",
+        "hipache"
+    ],
+    "bin": {
+        "chinook": "bin/chinook.js"
+    },
+    "scripts": {
+        "build": "./build.sh"
+    },
+    "dependencies": {
+        "async": "0.9.x",
+        "dockerode": "2.0.x",
+        "minimist": "0.2.x",
+        "redis": "0.10.x",
+        "underscore": "1.0.x"
+    }
+}
+
