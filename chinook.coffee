@@ -106,7 +106,7 @@ printAllContainers = (cb) ->
     console.log 'All containers:'
     console.log '---------------'
     getAllContainers (err, containers) ->
-        console.log container.ShortId + '\t' + container.Image + '\t' + container.Address for container in containers
+        console.log padRight(container.ShortId, 16) + padRight(container.Image, 24) + container.Address for container in containers
         cb()
 
 # Commands
