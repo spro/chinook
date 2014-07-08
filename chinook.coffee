@@ -8,7 +8,13 @@ async = require 'async'
 redis_address = (argv.redis || argv.r || 'localhost:6379').split(':')
 redis_host = redis_address[0]
 redis_port = redis_address[1]
-redis = require('redis').createClient(redis_port, redis_host)
+redis = null
+connectToRedis = (cb) ->
+    redis = require('redis').createClient(redis_port, redis_host)
+    redis.on 'ready', -> cb()
+    redis.on 'error', ->
+        console.log "[ERROR] Could not connect to Redis at #{ redis_address.join(':') }"
+        process.exit()
 
 # Helpers
 # ------------------------------------------------------------------------------
@@ -68,9 +74,9 @@ printAllAddresses = (cb) ->
 # Commands
 # ------------------------------------------------------------------------------
 
-command = argv._[2]
+Chinook = {}
 
-# chinook launch {image_id} {hostname}
+# TODO: chinook launch {image_id} {hostname}
 # chinook attach {container_id} {hostname}
 # chinook detach {container_id} {hostname}
 # chinook replace {old_container_id} {new_container_id} {hostname}
@@ -78,14 +84,10 @@ command = argv._[2]
 # Launch a new image and attach the resulting container to a hostname
 # ------------------------------------------------------------------------------
 
-if command == 'launch'
-    console.error "NOT IMPLEMENTED"
-    process.exit()
-
 # Attach a running container to a hostname
 # ------------------------------------------------------------------------------
 
-attachContainer = (container_id, hostname, cb) ->
+Chinook.attachContainer = (container_id, hostname, cb) ->
 
     docker.getContainer(container_id).inspect (err, container) ->
         console.log err if err
@@ -96,21 +98,10 @@ attachContainer = (container_id, hostname, cb) ->
         ensureHostname hostname, ->
             addAddress hostname, container_address, cb
 
-if command == 'attach'
-
-    _id = argv._[3]
-    _hostname = argv._[4] || argv.hostname || argv.hostname || argv.h
-
-    console.log "Attaching container #{ _id } to #{ _hostname }..."
-
-    attachContainer _id, _hostname, ->
-        printAddresses _hostname, ->
-            process.exit()
-
 # Detach a running container from a hostname
 # ------------------------------------------------------------------------------
 
-detachContainer = (container_id, hostname, cb) ->
+Chinook.detachContainer = (container_id, hostname, cb) ->
 
     docker.getContainer(container_id).inspect (err, container) ->
         console.log err if err
@@ -121,21 +112,10 @@ detachContainer = (container_id, hostname, cb) ->
         ensureHostname hostname, ->
             removeAddress hostname, container_address, cb
 
-if command == 'detach'
-    
-    _id = argv._[3]
-    _hostname = argv._[4] || argv.hostname || argv.h
-
-    console.log "Detaching container #{ _id } from #{ _hostname }..."
-
-    detachContainer _id, _hostname, ->
-        printAddresses _hostname, ->
-            process.exit()
-
 # Replace a running container with a new running container
 # ------------------------------------------------------------------------------
 
-replaceContainer = (old_container_id, new_container_id, hostname, cb) ->
+Chinook.replaceContainer = (old_container_id, new_container_id, hostname, cb) ->
 
     docker.getContainer(old_container_id).inspect (err, old_container) ->
         console.log err if err
@@ -151,23 +131,64 @@ replaceContainer = (old_container_id, new_container_id, hostname, cb) ->
                 removeAddress hostname, old_container_address, ->
                     addAddress hostname, new_container_address, cb
 
-if command == 'replace'
-    
-    _old_id = argv._[3]
-    _new_id = argv._[4]
-    _hostname = argv._[5] || argv.hostname || argv.h
 
-    console.log "Replacing container #{ _old_id } with #{ _new_id } for #{ _hostname }..."
 
-    replaceContainer _old_id, _new_id, _hostname, ->
-        printAddresses _hostname, ->
-            process.exit()
+if require.main != module
 
-# No command: show all current hostnames and addresses
-# ------------------------------------------------------------------------------
-# TODO: Show help
+    # require() mode: Export the core commands
+    # ------------------------------------------------------------------------------
 
-if !command
-    printAllAddresses ->
+    exports = Chinook
+    console.log 'TODO: Attach connected redis client to exported chinook context'
+
+else
+
+    # CLI mode: Interpret command line arguments and run specified methods
+    # ------------------------------------------------------------------------------
+    # TODO: Show help
+
+    command = argv._[2]
+
+    if command == 'launch'
+        console.error "NOT IMPLEMENTED"
         process.exit()
+
+    else if command == 'replace'
+        _old_id = argv._[3]
+        _new_id = argv._[4]
+        _hostname = argv._[5] || argv.hostname || argv.h
+
+        console.log "Replacing container #{ _old_id } with #{ _new_id } for #{ _hostname }..."
+
+        connectToRedis ->
+            Chinook.replaceContainer _old_id, _new_id, _hostname, ->
+                printAddresses _hostname, ->
+                    process.exit()
+
+    else if command == 'attach'
+        _id = argv._[3]
+        _hostname = argv._[4] || argv.hostname || argv.hostname || argv.h
+
+        console.log "Attaching container #{ _id } to #{ _hostname }..."
+
+        connectToRedis ->
+            Chinook.attachContainer _id, _hostname, ->
+                printAddresses _hostname, ->
+                    process.exit()
+
+    else if command == 'detach'
+        _id = argv._[3]
+        _hostname = argv._[4] || argv.hostname || argv.h
+
+        console.log "Detaching container #{ _id } from #{ _hostname }..."
+
+        connectToRedis ->
+            Chinook.detachContainer _id, _hostname, ->
+                printAddresses _hostname, ->
+                    process.exit()
+
+    else
+        connectToRedis ->
+            printAllAddresses ->
+                process.exit()
 
