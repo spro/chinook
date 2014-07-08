@@ -5,9 +5,9 @@ argv = require('minimist')(process.argv)
 async = require 'async'
 
 # Specify the Redis server to connect to with --redis or -r
-redis_address = (argv.redis || argv.r || 'localhost:6379').split(':')
-redis_host = redis_address[0]
-redis_port = redis_address[1]
+redis_address = (argv.redis || argv.r || ':').split(':')
+redis_host = redis_address[0] || 'localhost'
+redis_port = redis_address[1] || 6379
 redis = null
 connectToRedis = (cb) ->
     redis = require('redis').createClient(redis_port, redis_host)
