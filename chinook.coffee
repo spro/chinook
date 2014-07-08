@@ -11,10 +11,17 @@ redis_port = redis_address[1] || 6379
 redis = null
 connectToRedis = (cb) ->
     redis = require('redis').createClient(redis_port, redis_host)
-    redis.on 'ready', -> cb()
-    redis.on 'error', ->
-        console.log "[ERROR] Could not connect to Redis at #{ redis_address.join(':') }"
+    redis_connected = false
+    redisFailed = (err) ->
+        if !redis_connected
+            console.log "[ERROR] Could not connect to Redis at #{ redis_host }:#{ redis_port }"
+        else
+            console.log err
         process.exit()
+    redis.on 'ready', ->
+        redis_connected = true
+        cb()
+    redis.on 'error', redisFailed
 
 # Helpers
 # ------------------------------------------------------------------------------
