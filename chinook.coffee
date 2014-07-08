@@ -27,6 +27,12 @@ makeAddress = (net) -> 'http://' + net.IPAddress + ':' + getFirstPort net
 hostname_key_prefix = 'frontend:'
 hostnameKey = (hostname) -> hostname_key_prefix + hostname
 
+padRight = (s, n) ->
+    s_ = '' + s
+    while s_.length < n
+        s_ += ' '
+    return s_
+
 # Core methods
 # ------------------------------------------------------------------------------
 
@@ -62,9 +68,9 @@ _printAddresses = (hostname, cb) ->
         output += 'HOSTNAME: ' + hostname
         for address in addresses
             output += '\n    ----> '
-            output +=  address
+            output += padRight address, 30
             if container = address_containers[address]
-                output += "\t[#{ container.ShortId }] #{ container.Image }\t"
+                output += "[#{ container.ShortId }] #{ container.Image }"
         cb null, output
 
 # Print out all known hostnames and associated addresses
