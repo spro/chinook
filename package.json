@@ -27,7 +27,7 @@
         "dockerode": "2.0.x",
         "minimist": "0.2.x",
         "redis": "0.10.x",
-        "underscore": "1.0.x"
+        "underscore": "1.6.x"
     }
 }
 
