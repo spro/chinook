@@ -1,6 +1,6 @@
 {
     "name": "chinook",
-    "version": "0.0.3",
+    "version": "0.0.4",
     "description": "Automated hipache configuration for docker containers",
     "homepage": "http://github.com/prontotype-us/chinook",
     "repository": {
