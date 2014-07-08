@@ -80,6 +80,7 @@ Chinook = {}
 # chinook attach {container_id} {hostname}
 # chinook detach {container_id} {hostname}
 # chinook replace {old_container_id} {new_container_id} {hostname}
+# chinook clear {hostname}
 
 # Launch a new image and attach the resulting container to a hostname
 # ------------------------------------------------------------------------------
@@ -131,7 +132,11 @@ Chinook.replaceContainer = (old_container_id, new_container_id, hostname, cb) ->
                 removeAddress hostname, old_container_address, ->
                     addAddress hostname, new_container_address, cb
 
+# Clear a hostname's addresses
+# ------------------------------------------------------------------------------
 
+Chinook.clearHostname = (hostname, cb) ->
+    redis.del hostnameKey(hostname), cb
 
 if require.main != module
 
@@ -185,6 +190,14 @@ else
         connectToRedis ->
             Chinook.detachContainer _id, _hostname, ->
                 printAddresses _hostname, ->
+                    process.exit()
+
+    else if command == 'clear'
+        _hostname = argv._[3]
+
+        connectToRedis ->
+            Chinook.clearHostname _hostname, ->
+                printAllAddresses ->
                     process.exit()
 
     else
