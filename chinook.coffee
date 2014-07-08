@@ -37,19 +37,27 @@ removeAddress = (hostname, address, cb) ->
     redis.lrem hostnameKey(hostname), 0, address, cb
 
 # Print out the addresses associated with a hostname
-showAddresses = (hostname, cb) ->
-    redis.lrange hostnameKey(hostname), 1, -1, (err, addresses) ->
-        console.log '\nHOSTNAME: ' + hostname
-        console.log '    ----> ' + address for address in addresses
+printAddresses = (hostname, cb) ->
+    _printAddresses hostname, (err, output) ->
+        console.log output
         cb()
 
+# Build the string to print addresses
+_printAddresses = (hostname, cb) ->
+    redis.lrange hostnameKey(hostname), 1, -1, (err, addresses) ->
+        output = ''
+        output += 'HOSTNAME: ' + hostname
+        output += '\n    ----> ' + address for address in addresses
+        cb null, output
+
 # Print out all known hostnames and associated addresses
-showAllAddresses = (cb) ->
+printAllAddresses = (cb) ->
     redis.keys hostnameKey('*'), (err, hostname_keys) ->
-        async.eachSeries hostname_keys, (hk, _cb) ->
+        async.mapSeries hostname_keys, (hk, _cb) ->
             h = hk.replace(RegExp('^' + hostname_key_prefix), '')
-            showAddresses h, _cb
-        , ->
+            _printAddresses h, _cb
+        , (err, outputs) ->
+            console.log outputs.join '\n\n'
             cb()
 
 # Commands
@@ -78,6 +86,7 @@ attachContainer = (container_id, hostname, cb) ->
         console.log err if err
 
         container_address = makeAddress container.NetworkSettings
+        console.log '  ATTACH: [' + container_id + '] = ' + container_address
 
         ensureHostname hostname, ->
             addAddress hostname, container_address, cb
@@ -87,10 +96,10 @@ if command == 'attach'
     _id = argv._[3]
     _hostname = argv._[4] || argv.hostname || argv.hostname || argv.h
 
-    console.log "Attaching container #{ _id } to #{ _hostname }...\n"
+    console.log "Attaching container #{ _id } to #{ _hostname }..."
 
     attachContainer _id, _hostname, ->
-        showAddresses hostname, ->
+        printAddresses _hostname, ->
             process.exit()
 
 # Detach a running container from a hostname
@@ -102,6 +111,7 @@ detachContainer = (container_id, hostname, cb) ->
         console.log err if err
 
         container_address = makeAddress container.NetworkSettings
+        console.log '  DETACH: [' + container_id + '] = ' + container_address
 
         ensureHostname hostname, ->
             removeAddress hostname, container_address, cb
@@ -114,7 +124,7 @@ if command == 'detach'
     console.log "Detaching container #{ _id } from #{ _hostname }..."
 
     detachContainer _id, _hostname, ->
-        showAddresses _hostname, ->
+        printAddresses _hostname, ->
             process.exit()
 
 # Replace a running container with a new running container
@@ -125,10 +135,12 @@ replaceContainer = (old_container_id, new_container_id, hostname, cb) ->
     docker.getContainer(old_container_id).inspect (err, old_container) ->
         console.log err if err
         old_container_address = makeAddress old_container.NetworkSettings
+        console.log '  DETACH: [' + old_container_id + '] = ' + old_container_address
 
         docker.getContainer(new_container_id).inspect (err, new_container) ->
             console.log err if err
             new_container_address = makeAddress new_container.NetworkSettings
+            console.log '  ATTACH: [' + new_container_id + '] = ' + new_container_address
 
             ensureHostname hostname, ->
                 removeAddress hostname, old_container_address, ->
@@ -143,7 +155,7 @@ if command == 'replace'
     console.log "Replacing container #{ _old_id } with #{ _new_id } for #{ _hostname }..."
 
     replaceContainer _old_id, _new_id, _hostname, ->
-        showAddresses _hostname, ->
+        printAddresses _hostname, ->
             process.exit()
 
 # No command: show all current hostnames and addresses
@@ -151,6 +163,6 @@ if command == 'replace'
 # TODO: Show help
 
 if !command
-    showAllAddresses ->
+    printAllAddresses ->
         process.exit()
 
