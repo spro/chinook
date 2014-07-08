@@ -26,13 +26,28 @@ connectToRedis = (cb) ->
 # Helpers
 # ------------------------------------------------------------------------------
 
-# WARNING/TODO: All methods relying on makeAddress are assuming that a container
+# WARNING/TODO: All methods relying on makeContainerAddress are assuming that a container
 # will have only one exposed port where the desired service presides.
 getFirstPort = (net) -> _.keys(net.Ports)[0].split('/')[0]
-makeAddress = (net) -> 'http://' + net.IPAddress + ':' + getFirstPort net
+makeContainerAddress = (net) -> 'http://' + net.IPAddress + ':' + getFirstPort net
 
 hostname_key_prefix = 'frontend:'
 hostnameKey = (hostname) -> hostname_key_prefix + hostname
+
+parseProtoAddress = (proto_address) ->
+    proto_address = proto_address.split('://')
+    if proto_address.length == 1
+        proto = 'http'
+        address = proto_address[0]
+    else
+        proto = proto_address[0]
+        address = proto_address[1]
+    return [proto, address]
+
+formatProtoAddress = (proto, address) ->
+    if address.match /^:\d+$/
+        address = 'localhost' + address
+    return proto + '://' + address
 
 padRight = (s, n) ->
     s_ = '' + s
@@ -46,7 +61,7 @@ padRight = (s, n) ->
 # Check that the hostname has an address list set up, create one if not
 ensureHostname = (hostname, cb) ->
     redis.llen hostnameKey(hostname), (err, l) ->
-        if l < 2
+        if l < 1
             redis.rpush hostnameKey(hostname), hostname, cb
         else
             cb()
@@ -62,6 +77,35 @@ addAddress = (hostname, address, cb) ->
 removeAddress = (hostname, address, cb) ->
     redis.lrem hostnameKey(hostname), 0, address, cb
 
+# Keeping track of container <-> address relationships
+# ------------------------------------------------------------------------------
+
+address_containers = {}
+container_image_names = {} # Map container IDs to image names
+
+# Get running docker containers with addresses for exposed ports
+getAllContainers = (cb) ->
+    docker.listContainers (err, containers) ->
+        async.map containers, (container, _cb) ->
+            docker.getContainer(container.Id).inspect (err, full_container) ->
+                container.Address = makeContainerAddress full_container.NetworkSettings
+                container.ShortId = container.Id[..11]
+                address_containers[container.Address] = container
+                container_image_names[container.Id] = container.Image
+                _cb null, container
+        , cb
+
+# Printing methods
+# ------------------------------------------------------------------------------
+
+# Print list of running containers
+printAllContainers = (cb) ->
+    console.log 'Running containers:'
+    console.log '------------------'
+    getAllContainers (err, containers) ->
+        console.log padRight(container.ShortId, 16) + padRight(container.Image, 24) + container.Address for container in containers
+        cb()
+
 # Print out the addresses associated with a hostname
 printAddresses = (hostname, cb) ->
     _printAddresses hostname, (err, output) ->
@@ -74,16 +118,18 @@ _printAddresses = (hostname, cb) ->
         output = ''
         output += 'HOSTNAME: ' + hostname
         for address in addresses
-            output += '\n    ----> '
+            output += '\n      --> '
             output += padRight address, 30
             if container = address_containers[address]
                 output += "[#{ container.ShortId }] #{ container.Image }"
+        if !addresses.length
+            output += '\n      --- no assigned addresses'
         cb null, output
 
 # Print out all known hostnames and associated addresses
 printAllAddresses = (cb) ->
-    console.log 'All assignments:'
-    console.log '----------------'
+    console.log 'Current assignments:'
+    console.log '-------------------'
     redis.keys hostnameKey('*'), (err, hostname_keys) ->
         async.mapSeries hostname_keys, (hk, _cb) ->
             h = hk.replace(RegExp('^' + hostname_key_prefix), '')
@@ -92,29 +138,11 @@ printAllAddresses = (cb) ->
             console.log outputs.join '\n\n'
             cb()
 
-# Keeping track of container <-> address relationships
-# ------------------------------------------------------------------------------
+printAssigning = (address) ->
+    console.log '      --+ ' + address
 
-address_containers = {}
-
-# Get running docker containers with addresses for exposed ports
-getAllContainers = (cb) ->
-    docker.listContainers (err, containers) ->
-        async.map containers, (container, _cb) ->
-            docker.getContainer(container.Id).inspect (err, full_container) ->
-                container.Address = makeAddress full_container.NetworkSettings
-                container.ShortId = container.Id[..11]
-                address_containers[container.Address] = container
-                _cb null, container
-        , cb
-
-# Print list of running containers
-printAllContainers = (cb) ->
-    console.log 'All containers:'
-    console.log '---------------'
-    getAllContainers (err, containers) ->
-        console.log padRight(container.ShortId, 16) + padRight(container.Image, 24) + container.Address for container in containers
-        cb()
+printUnassigning = (address) ->
+    console.log '      --x ' + address
 
 # Commands
 # ------------------------------------------------------------------------------
@@ -137,51 +165,69 @@ Chinook.launchImage = (cb) ->
 # ------------------------------------------------------------------------------
 # COMMAND: chinook assign {container_id} {hostname}
 
+Chinook.assign = (proto, address, hostname, cb) ->
+    if assigner = Chinook.assigners[proto]
+        assigner(address, hostname, cb)
+    else
+        Chinook.assignAddress(formatProtoAddress(proto, address), hostname, cb)
+
+Chinook.assignAddress = (address, hostname, cb) ->
+    printAssigning address
+
+    ensureHostname hostname, ->
+        addAddress hostname, address, cb
+
 Chinook.assignContainer = (container_id, hostname, cb) ->
 
     docker.getContainer(container_id).inspect (err, container) ->
         console.log err if err
 
-        container_address = makeAddress container.NetworkSettings
-        console.log '  ASSIGN: [' + container_id + '] = ' + container_address
+        container_address = makeContainerAddress container.NetworkSettings
+        printAssigning container_address
 
         ensureHostname hostname, ->
             addAddress hostname, container_address, cb
 
+Chinook.assigners =
+    docker: Chinook.assignContainer
+
 # Unassign a running container from a hostname
 # ------------------------------------------------------------------------------
 # COMMAND: chinook unassign {container_id} {hostname}
+
+Chinook.unassign = (proto, address, hostname, cb) ->
+    if unassigner = Chinook.unassigners[proto]
+        unassigner(address, hostname, cb)
+    else
+        Chinook.unassignAddress(formatProtoAddress(proto, address), hostname, cb)
+
+Chinook.unassignAddress = (address, hostname, cb) ->
+    printUnassigning address
+
+    ensureHostname hostname, ->
+        removeAddress hostname, address, cb
 
 Chinook.unassignContainer = (container_id, hostname, cb) ->
 
     docker.getContainer(container_id).inspect (err, container) ->
         console.log err if err
 
-        container_address = makeAddress container.NetworkSettings
-        console.log 'UNASSIGN: [' + container_id + '] = ' + container_address
+        container_address = makeContainerAddress container.NetworkSettings
+        printUnassigning container_address
 
-        ensureHostname hostname, ->
-            removeAddress hostname, container_address, cb
+        Chinook.unassignAddress container_address, hostname, cb
+
+Chinook.unassigners =
+    docker: Chinook.unassignContainer
 
 # Replace a running container with a new running container
 # ------------------------------------------------------------------------------
 # COMMAND: chinook replace {old_container_id} {new_container_id} {hostname}
 
-Chinook.replaceContainer = (old_container_id, new_container_id, hostname, cb) ->
+Chinook.replace = (old_proto_address, new_proto_address, hostname, cb) ->
 
-    docker.getContainer(old_container_id).inspect (err, old_container) ->
-        console.log err if err
-        old_container_address = makeAddress old_container.NetworkSettings
-        console.log 'UNASSIGN: [' + old_container_id + '] = ' + old_container_address
-
-        docker.getContainer(new_container_id).inspect (err, new_container) ->
-            console.log err if err
-            new_container_address = makeAddress new_container.NetworkSettings
-            console.log '  ASSIGN: [' + new_container_id + '] = ' + new_container_address
-
-            ensureHostname hostname, ->
-                removeAddress hostname, old_container_address, ->
-                    addAddress hostname, new_container_address, cb
+    Chinook.unassign old_proto_address..., hostname, ->
+        Chinook.assign new_proto_address..., hostname, cb
 
 # Clear a hostname's addresses
 # ------------------------------------------------------------------------------
@@ -210,37 +256,35 @@ else
         Chinook.launchImage ->
             process.exit()
 
-    else if command == 'replace'
-        _old_id = argv._[3]
-        _new_id = argv._[4]
-        _hostname = argv._[5] || argv.hostname || argv.h
-
-        console.log "Replacing container #{ _old_id } with #{ _new_id } for #{ _hostname }..."
-
-        Chinook.prepare ->
-            Chinook.replaceContainer _old_id, _new_id, _hostname, ->
-                printAddresses _hostname, ->
-                    process.exit()
-
     else if command == 'assign'
-        _id = argv._[3]
+        _proto_address = parseProtoAddress argv._[3]
         _hostname = argv._[4] || argv.hostname || argv.hostname || argv.h
 
-        console.log "Assigning container #{ _id } to #{ _hostname }..."
-
         Chinook.prepare ->
-            Chinook.assignContainer _id, _hostname, ->
+            Chinook.assign _proto_address..., _hostname, ->
                 printAddresses _hostname, ->
                     process.exit()
 
     else if command == 'unassign'
-        _id = argv._[3]
+        _proto_address = parseProtoAddress argv._[3]
         _hostname = argv._[4] || argv.hostname || argv.h
 
-        console.log "Unassigning container #{ _id } from #{ _hostname }..."
+        #console.log "Unassigning container #{ _id } from #{ _hostname }..."
 
         Chinook.prepare ->
-            Chinook.unassignContainer _id, _hostname, ->
+            Chinook.unassign _proto_address..., _hostname, ->
+                printAddresses _hostname, ->
+                    process.exit()
+
+    else if command == 'replace'
+        _old_proto_address = parseProtoAddress argv._[3]
+        _new_proto_address = parseProtoAddress argv._[4]
+        _hostname = argv._[5] || argv.hostname || argv.h
+
+        #console.log "Replacing container #{ _old_proto_address } with #{ _new_proto_address } for #{ _hostname }..."
+
+        Chinook.prepare ->
+            Chinook.replace _old_proto_address, _new_proto_address, _hostname, ->
                 printAddresses _hostname, ->
                     process.exit()
 
