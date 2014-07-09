@@ -103,7 +103,7 @@ printAllContainers = (cb) ->
     console.log 'Running containers:'
     console.log '------------------'
     getAllContainers (err, containers) ->
-        console.log padRight(container.ShortId, 16) + padRight(container.Image, 24) + container.Address for container in containers
+        console.log padRight(container.ShortId, 16) + padRight(container.Image, 28) + container.Address for container in containers
         cb()
 
 # Print out the addresses associated with a hostname
@@ -116,10 +116,10 @@ printAddresses = (hostname, cb) ->
 _printAddresses = (hostname, cb) ->
     redis.lrange hostnameKey(hostname), 1, -1, (err, addresses) ->
         output = ''
-        output += 'HOSTNAME: ' + hostname
+        output += '  HOST: ' + hostname
         for address in addresses
-            output += '\n      --> '
-            output += padRight address, 30
+            output += '\n    --> '
+            output += padRight address, 32
             if container = address_containers[address]
                 output += "[#{ container.ShortId }] #{ container.Image }"
         if !addresses.length
