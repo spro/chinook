@@ -131,7 +131,7 @@
       var container, _i, _len;
       for (_i = 0, _len = containers.length; _i < _len; _i++) {
         container = containers[_i];
-        console.log(padRight(container.ShortId, 16) + padRight(container.Image, 24) + container.Address);
+        console.log(padRight(container.ShortId, 16) + padRight(container.Image, 28) + container.Address);
       }
       return cb();
     });
@@ -148,11 +148,11 @@
     return redis.lrange(hostnameKey(hostname), 1, -1, function(err, addresses) {
       var address, container, output, _i, _len;
       output = '';
-      output += 'HOSTNAME: ' + hostname;
+      output += '  HOST: ' + hostname;
       for (_i = 0, _len = addresses.length; _i < _len; _i++) {
         address = addresses[_i];
-        output += '\n      --> ';
-        output += padRight(address, 30);
+        output += '\n    --> ';
+        output += padRight(address, 32);
         if (container = address_containers[address]) {
           output += "[" + container.ShortId + "] " + container.Image;
         }
