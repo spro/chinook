@@ -112,8 +112,8 @@
 
   getAllContainers = function(cb) {
     return docker.listContainers(function(err, containers) {
-      if (err != null) {
-        cb(err, []);
+      if (containers == null) {
+        containers = [];
       }
       return async.map(containers, function(container, _cb) {
         return docker.getContainer(container.Id).inspect(function(err, full_container) {
@@ -171,6 +171,9 @@
     console.log('Current assignments:');
     console.log('-------------------');
     return redis.keys(hostnameKey('*'), function(err, hostname_keys) {
+      if (hostname_keys == null) {
+        hostname_keys = [];
+      }
       return async.mapSeries(hostname_keys, function(hk, _cb) {
         var h;
         h = hk.replace(RegExp('^' + hostname_key_prefix), '');

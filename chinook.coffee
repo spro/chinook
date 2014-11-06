@@ -85,8 +85,7 @@ container_image_names = {} # Map container IDs to image names
 
 # Get running docker containers with addresses for exposed ports
 getAllContainers = (cb) ->
-    docker.listContainers (err, containers) ->
-        cb err, [] if err?
+    docker.listContainers (err, containers=[]) ->
         async.map containers, (container, _cb) ->
             docker.getContainer(container.Id).inspect (err, full_container) ->
                 container.Address = makeContainerAddress full_container.NetworkSettings
@@ -131,7 +130,7 @@ _printAddresses = (hostname, cb) ->
 printAllAddresses = (cb) ->
     console.log 'Current assignments:'
     console.log '-------------------'
-    redis.keys hostnameKey('*'), (err, hostname_keys) ->
+    redis.keys hostnameKey('*'), (err, hostname_keys=[]) ->
         async.mapSeries hostname_keys, (hk, _cb) ->
             h = hk.replace(RegExp('^' + hostname_key_prefix), '')
             _printAddresses h, _cb
