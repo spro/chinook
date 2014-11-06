@@ -86,6 +86,7 @@ container_image_names = {} # Map container IDs to image names
 # Get running docker containers with addresses for exposed ports
 getAllContainers = (cb) ->
     docker.listContainers (err, containers) ->
+        cb err, [] if err?
         async.map containers, (container, _cb) ->
             docker.getContainer(container.Id).inspect (err, full_container) ->
                 container.Address = makeContainerAddress full_container.NetworkSettings

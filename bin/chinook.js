@@ -112,6 +112,9 @@
 
   getAllContainers = function(cb) {
     return docker.listContainers(function(err, containers) {
+      if (err != null) {
+        cb(err, []);
+      }
       return async.map(containers, function(container, _cb) {
         return docker.getContainer(container.Id).inspect(function(err, full_container) {
           container.Address = makeContainerAddress(full_container.NetworkSettings);
