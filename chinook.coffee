@@ -1,14 +1,22 @@
 util = require 'util'
-docker = new require('dockerode')({socketPath: '/var/run/docker.sock'})
 _ = require 'underscore'
 argv = require('minimist')(process.argv)
 async = require 'async'
+
+verbose = argv.v || argv.verbose || false
+
+try
+    docker = new require('dockerode')({socketPath: '/var/run/docker.sock'})
+catch e
+    if argv.v
+        console.log 'Package "dockerode" not available.'
 
 # Specify the Redis server to connect to with --redis or -r
 redis_address = (argv.redis || argv.r || ':').split(':')
 redis_host = redis_address[0] || 'localhost'
 redis_port = redis_address[1] || 6379
 redis = null
+
 connectToRedis = (cb) ->
     redis = require('redis').createClient(redis_port, redis_host)
     redis_connected = false
@@ -31,7 +39,7 @@ connectToRedis = (cb) ->
 getFirstPort = (net) -> _.keys(net.Ports)[0].split('/')[0]
 makeContainerAddress = (net) -> 'http://' + net.IPAddress + ':' + getFirstPort net
 
-hostname_key_prefix = 'frontend:'
+hostname_key_prefix = 'backends:'
 hostnameKey = (hostname) -> hostname_key_prefix + hostname
 
 parseProtoAddress = (proto_address) ->
@@ -44,9 +52,11 @@ parseProtoAddress = (proto_address) ->
         address = proto_address[1]
     return [proto, address]
 
-formatProtoAddress = (proto, address) ->
+formatProtoAddress = (proto, address, use_proto=true) ->
     if address.match /^:\d+$/
-        address = 'localhost' + address
+        address = '127.0.0.1' + address
+    if !use_proto
+        return address
     return proto + '://' + address
 
 padRight = (s, n) ->
@@ -58,24 +68,16 @@ padRight = (s, n) ->
 # Core methods
 # ------------------------------------------------------------------------------
 
-# Check that the hostname has an address list set up, create one if not
-ensureHostname = (hostname, cb) ->
-    redis.llen hostnameKey(hostname), (err, l) ->
-        if l < 1
-            redis.rpush hostnameKey(hostname), hostname, cb
-        else
-            cb()
-
 # Add an address to a hostname
 addAddress = (hostname, address, cb) ->
     # Remove in case it already exists
     # TODO: Make a set-based backend for hipache
     removeAddress hostname, address, ->
-        redis.rpush hostnameKey(hostname), address, cb
+        redis.sadd hostnameKey(hostname), address, cb
 
 # Remove an address from a hostname
 removeAddress = (hostname, address, cb) ->
-    redis.lrem hostnameKey(hostname), 0, address, cb
+    redis.srem hostnameKey(hostname), 0, address, cb
 
 # Keeping track of container <-> address relationships
 # ------------------------------------------------------------------------------
@@ -85,6 +87,8 @@ container_image_names = {} # Map container IDs to image names
 
 # Get running docker containers with addresses for exposed ports
 getAllContainers = (cb) ->
+    if !docker?
+        return cb()
     docker.listContainers (err, containers=[]) ->
         async.map containers, (container, _cb) ->
             docker.getContainer(container.Id).inspect (err, full_container) ->
@@ -100,6 +104,8 @@ getAllContainers = (cb) ->
 
 # Print list of running containers
 printAllContainers = (cb) ->
+    if !docker?
+        return cb()
     console.log 'Running containers:'
     console.log '------------------'
     getAllContainers (err, containers) ->
@@ -114,16 +120,17 @@ printAddresses = (hostname, cb) ->
 
 # Build the string to print addresses
 _printAddresses = (hostname, cb) ->
-    redis.lrange hostnameKey(hostname), 1, -1, (err, addresses) ->
+    redis.smembers hostnameKey(hostname), (err, addresses) ->
         output = ''
         output += '  HOST: ' + hostname
-        for address in addresses
-            output += '\n    --> '
-            output += padRight address, 32
-            if container = address_containers[address]
-                output += "[#{ container.ShortId }] #{ container.Image }"
-        if !addresses.length
+        if !addresses?.length
             output += '\n      --- no assigned addresses'
+        else
+            for address in addresses
+                output += '\n    --> '
+                output += padRight address, 32
+                if container = address_containers[address]
+                    output += "[#{ container.ShortId }] #{ container.Image }"
         cb null, output
 
 # Print out all known hostnames and associated addresses
@@ -169,13 +176,12 @@ Chinook.assign = (proto, address, hostname, cb) ->
     if assigner = Chinook.assigners[proto]
         assigner(address, hostname, cb)
     else
-        Chinook.assignAddress(formatProtoAddress(proto, address), hostname, cb)
+        Chinook.assignAddress(formatProtoAddress(proto, address, false), hostname, cb)
 
 Chinook.assignAddress = (address, hostname, cb) ->
     printAssigning address
 
-    ensureHostname hostname, ->
-        addAddress hostname, address, cb
+    addAddress hostname, address, cb
 
 Chinook.assignContainer = (container_id, hostname, cb) ->
 
@@ -185,8 +191,7 @@ Chinook.assignContainer = (container_id, hostname, cb) ->
         container_address = makeContainerAddress container.NetworkSettings
         printAssigning container_address
 
-        ensureHostname hostname, ->
-            addAddress hostname, container_address, cb
+        addAddress hostname, container_address, cb
 
 Chinook.assigners =
     docker: Chinook.assignContainer
@@ -199,13 +204,12 @@ Chinook.unassign = (proto, address, hostname, cb) ->
     if unassigner = Chinook.unassigners[proto]
         unassigner(address, hostname, cb)
     else
-        Chinook.unassignAddress(formatProtoAddress(proto, address), hostname, cb)
+        Chinook.unassignAddress(formatProtoAddress(proto, address, false), hostname, cb)
 
 Chinook.unassignAddress = (address, hostname, cb) ->
     printUnassigning address
 
-    ensureHostname hostname, ->
-        removeAddress hostname, address, cb
+    removeAddress hostname, address, cb
 
 Chinook.unassignContainer = (container_id, hostname, cb) ->
 
@@ -269,7 +273,7 @@ else
         _proto_address = parseProtoAddress argv._[3]
         _hostname = argv._[4] || argv.hostname || argv.h
 
-        #console.log "Unassigning container #{ _id } from #{ _hostname }..."
+        console.log "Unassigning container #{ _proto_address } from #{ _hostname }..."
 
         Chinook.prepare ->
             Chinook.unassign _proto_address..., _hostname, ->
